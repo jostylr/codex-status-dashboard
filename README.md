@@ -3,8 +3,15 @@
 An intentionally small, native macOS proof of concept. A Codex lifecycle hook
 starts the `codex-status-hook` executable and supplies a structured event on
 standard input. The helper posts a local macOS distributed notification, and
-`codex-status-dashboard` is a plain AppKit window that displays the latest
-notification.
+`codex-status-dashboard` is a compact, movable floating light strip shown on
+every Space. It sweeps blue while work is active, pulses amber for permission,
+and glows green at completion. It tracks up to six concurrent Codex sessions:
+one session uses all six lights, while two sessions split the strip into left and
+right groups of three. Additional sessions divide the six lights as evenly as
+possible. A completed session remains green until a newer active session needs
+the strip; then all completed segments are removed and the active sessions are
+rebalanced. For example, three 2-light groups with two completed threads become
+two 3-light groups when a new thread starts.
 
 It forwards only the event name, session ID, turn ID, and working directory;
 prompt text and other fields are not broadcast. It also continues to accept a
