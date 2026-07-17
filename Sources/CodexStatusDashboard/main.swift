@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ServiceManagement
 import StatusProtocol
 
 @MainActor
@@ -23,13 +24,13 @@ private final class LightStripView: NSView {
         var lastUpdated: Date
     }
 
-    private let lightCount = 6
-    private let maximumThreadSlots = 6
+    private var baseLightCount: Int
     private var slots = [ThreadSlot]()
     private var phase: CGFloat = 0
     private var timer: Timer?
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, baseLightCount: Int) {
+        self.baseLightCount = max(1, baseLightCount)
         super.init(frame: frameRect)
         wantsLayer = true
         toolTip = "Codex status: idle"
@@ -38,6 +39,23 @@ private final class LightStripView: NSView {
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    var preferredWidth: CGFloat {
+        let groupCount = max(slots.count, 1)
+        let visibleLightCount = max(baseLightCount, groupCount)
+        let diameter: CGFloat = 18
+        let gap: CGFloat = 9
+        let groupGap: CGFloat = 23
+        let lightsWidth = CGFloat(visibleLightCount) * diameter
+            + CGFloat(visibleLightCount - groupCount) * gap
+            + CGFloat(groupCount - 1) * groupGap
+        return max(236, lightsWidth + 32)
+    }
+
+    func setBaseLightCount(_ count: Int) {
+        baseLightCount = max(1, count)
+        needsDisplay = true
     }
 
     func apply(eventName: String, sessionID: String?) {
@@ -84,10 +102,11 @@ private final class LightStripView: NSView {
         let gap: CGFloat = 9
         let groupGap: CGFloat = 23
         let states = slots.isEmpty ? [.idle] : slots.map(\.state)
-        let counts = lightCounts(for: states.count)
+        let visibleLightCount = max(baseLightCount, states.count)
+        let counts = lightCounts(total: visibleLightCount, for: states.count)
         let totalWidth =
-            CGFloat(lightCount) * diameter
-            + CGFloat(lightCount - states.count) * gap
+            CGFloat(visibleLightCount) * diameter
+            + CGFloat(visibleLightCount - states.count) * gap
             + CGFloat(states.count - 1) * groupGap
         var originX = (self.bounds.width - totalWidth) / 2
         let originY = (self.bounds.height - diameter) / 2
@@ -157,9 +176,9 @@ private final class LightStripView: NSView {
         }
     }
 
-    private func lightCounts(for groupCount: Int) -> [Int] {
-        let base = lightCount / groupCount
-        let remainder = lightCount % groupCount
+    private func lightCounts(total: Int, for groupCount: Int) -> [Int] {
+        let base = total / groupCount
+        let remainder = total % groupCount
         return (0..<groupCount).map { index in base + (index < remainder ? 1 : 0) }
     }
 
@@ -177,10 +196,7 @@ private final class LightStripView: NSView {
         // among the currently active threads.
         slots.removeAll { $0.state == .complete }
 
-        if slots.count < maximumThreadSlots {
-            slots.append(slot)
-            return
-        }
+        slots.append(slot)
     }
 
     private func updateToolTip() {
@@ -217,18 +233,34 @@ private final class LightStripView: NSView {
 }
 
 @MainActor
-final class DashboardController: NSObject, NSApplicationDelegate {
+final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private static let baseLightCountKey = "base-light-count"
+    private static let defaultBaseLightCount = 6
+    private static let lightCountChoices = [4, 6, 8, 10, 12]
+
     private let panel = StatusPanel(
         contentRect: NSRect(x: 0, y: 0, width: 236, height: 44),
         styleMask: [.borderless, .nonactivatingPanel],
         backing: .buffered,
         defer: false
     )
-    private let lightStrip = LightStripView(frame: NSRect(x: 0, y: 0, width: 236, height: 44))
+    private let lightStrip: LightStripView
+    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    private var dashboardMenuItem: NSMenuItem?
+    private var loginItem: NSMenuItem?
+
+    override init() {
+        lightStrip = LightStripView(
+            frame: NSRect(x: 0, y: 0, width: 236, height: 44),
+            baseLightCount: Self.baseLightCount
+        )
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         configurePanel()
+        configureStatusItem()
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(receiveHookEvent(_:)),
@@ -236,6 +268,7 @@ final class DashboardController: NSObject, NSApplicationDelegate {
             object: nil,
             suspensionBehavior: .deliverImmediately
         )
+        resizePanelToContents()
         panel.orderFrontRegardless()
     }
 
@@ -249,6 +282,7 @@ final class DashboardController: NSObject, NSApplicationDelegate {
         else { return }
 
         lightStrip.apply(eventName: eventName, sessionID: values[StatusNotification.sessionIDKey])
+        resizePanelToContents()
     }
 
     private func configurePanel() {
@@ -261,8 +295,159 @@ final class DashboardController: NSObject, NSApplicationDelegate {
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        lightStrip.autoresizingMask = [.width, .height]
         panel.contentView = lightStrip
         positionPanel()
+    }
+
+    private func configureStatusItem() {
+        guard let button = statusItem.button else { return }
+        button.image = NSImage(systemSymbolName: "circle.grid.3x3.fill", accessibilityDescription: "Codex Status Dashboard")
+        button.image?.isTemplate = true
+        button.toolTip = "Codex Status Dashboard"
+
+        let menu = NSMenu()
+        menu.delegate = self
+
+        let dashboardItem = NSMenuItem(title: "Hide Dashboard", action: #selector(toggleDashboard), keyEquivalent: "")
+        dashboardItem.target = self
+        menu.addItem(dashboardItem)
+        dashboardMenuItem = dashboardItem
+
+        let lightCountItem = NSMenuItem(title: "Base Lights", action: nil, keyEquivalent: "")
+        let lightCountMenu = NSMenu(title: "Base Lights")
+        for count in Self.lightCountChoices {
+            let item = NSMenuItem(title: "\(count)", action: #selector(selectBaseLightCount(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = count
+            lightCountMenu.addItem(item)
+        }
+        lightCountItem.submenu = lightCountMenu
+        menu.addItem(lightCountItem)
+
+        menu.addItem(.separator())
+
+        let installItem = NSMenuItem(title: "Install / Update Codex Hooks…", action: #selector(installHooks), keyEquivalent: "")
+        installItem.target = self
+        menu.addItem(installItem)
+
+        let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        loginItem.target = self
+        menu.addItem(loginItem)
+        self.loginItem = loginItem
+
+        menu.addItem(.separator())
+        let quitItem = NSMenuItem(title: "Quit Codex Status Dashboard", action: #selector(quit), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
+        statusItem.menu = menu
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        dashboardMenuItem?.title = panel.isVisible ? "Hide Dashboard" : "Show Dashboard"
+        for item in menu.items {
+            guard let submenu = item.submenu, item.title == "Base Lights" else { continue }
+            for choice in submenu.items {
+                choice.state = choice.tag == Self.baseLightCount ? .on : .off
+            }
+        }
+        loginItem?.isEnabled = isRunningAsAppBundle
+        loginItem?.state = launchAtLoginEnabled ? .on : .off
+        loginItem?.toolTip = isRunningAsAppBundle ? nil : "Available after the dashboard is installed as a .app bundle."
+    }
+
+    @objc private func toggleDashboard() {
+        if panel.isVisible {
+            panel.orderOut(nil)
+        } else {
+            panel.orderFrontRegardless()
+        }
+    }
+
+    @objc private func selectBaseLightCount(_ sender: NSMenuItem) {
+        Self.baseLightCount = sender.tag
+        lightStrip.setBaseLightCount(sender.tag)
+        resizePanelToContents()
+    }
+
+    @objc private func installHooks() {
+        do {
+            let helperURL = try CodexHookInstaller.helperExecutableURL()
+            let alert = NSAlert()
+            alert.messageText = "Install Codex Status hooks?"
+            alert.informativeText = "This will merge four lifecycle hooks into \(CodexHookInstaller.configurationURL.path). Existing hooks and your notify setting will remain unchanged. Codex will still ask you to trust the new command hook."
+            alert.addButton(withTitle: "Install Hooks")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+            let result = try CodexHookInstaller.install(helperURL: helperURL)
+            let confirmation = NSAlert()
+            confirmation.messageText = result.addedEvents.isEmpty ? "Codex hooks are already installed" : "Codex hooks installed"
+            confirmation.informativeText = result.addedEvents.isEmpty
+                ? "No changes were needed in \(result.configurationURL.path)."
+                : "Added hooks for \(result.addedEvents.joined(separator: ", ")). Restart Codex Desktop, then approve the hook trust prompt when it appears."
+            confirmation.runModal()
+        } catch {
+            showError(title: "Could not install Codex hooks", error: error)
+        }
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        guard isRunningAsAppBundle else {
+            showMessage(
+                title: "Install the app first",
+                message: "Launch at Login is available once Codex Status Dashboard is running from an installed .app bundle."
+            )
+            return
+        }
+
+        do {
+            let service = SMAppService.mainApp
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+            }
+        } catch {
+            showError(title: "Could not update Launch at Login", error: error)
+        }
+    }
+
+    @objc private func quit() {
+        NSApp.terminate(nil)
+    }
+
+    private func resizePanelToContents() {
+        panel.setContentSize(NSSize(width: lightStrip.preferredWidth, height: 44))
+    }
+
+    private var isRunningAsAppBundle: Bool {
+        Bundle.main.bundleURL.pathExtension.lowercased() == "app"
+    }
+
+    private var launchAtLoginEnabled: Bool {
+        isRunningAsAppBundle && SMAppService.mainApp.status == .enabled
+    }
+
+    private static var baseLightCount: Int {
+        get {
+            let value = UserDefaults.standard.integer(forKey: baseLightCountKey)
+            return value > 0 ? value : defaultBaseLightCount
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: baseLightCountKey)
+        }
+    }
+
+    private func showMessage(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.runModal()
+    }
+
+    private func showError(title: String, error: Error) {
+        showMessage(title: title, message: error.localizedDescription)
     }
 
     private func positionPanel() {
@@ -271,7 +456,7 @@ final class DashboardController: NSObject, NSApplicationDelegate {
         // the panel with the physical screen edge so that inset is also the
         // visible gap below and to the left of the border.
         let frame = screen.frame
-        panel.setFrameOrigin(NSPoint(x: frame.minX + 7, y: frame.minY + 7))
+        panel.setFrameOrigin(NSPoint(x: frame.minX, y: frame.minY))
     }
 }
 

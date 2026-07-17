@@ -5,22 +5,23 @@ starts the `codex-status-hook` executable and supplies a structured event on
 standard input. The helper posts a local macOS distributed notification, and
 `codex-status-dashboard` is a compact, movable floating light strip shown on
 every Space. It sweeps blue while work is active, pulses amber for permission,
-and glows green at completion. It tracks up to six concurrent Codex sessions:
-one session uses all six lights, while two sessions split the strip into left and
-right groups of three. Additional sessions divide the six lights as evenly as
-possible. A completed session remains green until a newer active session needs
-the strip; then all completed segments are removed and the active sessions are
-rebalanced. For example, three 2-light groups with two completed threads become
-two 3-light groups when a new thread starts.
+and glows green at completion. Its configurable base is six lights: one session
+uses all six, while two split the strip into left and right groups of three.
+Additional sessions divide the strip as evenly as possible. If active sessions
+exceed the configured base, the strip expands with one light per extra session.
+When a newer thread starts, completed segments clear and active sessions
+rebalance; for example, three 2-light groups with two completed threads become
+two 3-light groups.
 
 It forwards only the event name, session ID, turn ID, and working directory;
 prompt text and other fields are not broadcast. It also continues to accept a
 plain command-line event name for the older `notify` integration, but hooks are
 the preferred path.
 
-## Run the dashboard
+## Run from source
 
 ```sh
+swift build
 swift run codex-status-dashboard
 ```
 
@@ -30,24 +31,32 @@ Keep that window running, then in a second terminal send a representative event:
 printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"demo-session","turn_id":"demo-turn","cwd":"/tmp/demo"}' | swift run codex-status-hook
 ```
 
-The dashboard should change to `Received UserPromptSubmit`.
+The dashboard should start its blue scanner animation.
 
-## Install lifecycle hooks
+## Build an app bundle
 
-Build a release helper once:
+For a stable hook-helper path and Launch at Login support, build the native app
+bundle, move it to `/Applications`, then open it:
 
 ```sh
-swift build -c release
+sh scripts/build-app.sh
+open ".build/Codex Status Dashboard.app"
 ```
+
+The dashboard runs as a menu-bar app. Its menu provides Show/Hide, Quit, a
+persisted Base Lights preference, Hook installation, and Launch at Login.
+The bundled app icon is generated from [Resources/AppIcon.svg](Resources/AppIcon.svg).
+
+## Install lifecycle hooks
 
 The hook configuration is deliberately separate from `notify`; the existing
 `notify` value in `~/.codex/config.toml` remains unchanged.
 
-Merge the entries from [examples/codex-status-hooks.json](examples/codex-status-hooks.json)
-into the global `hooks.json` file described by Codex Desktop's hook documentation
-(the current embedded Codex identifies its global hook file as
-`~/.codex/hooks/hooks.json`). The command in the example points at this checkout's
-release executable; update it if you move the repository.
+Choose **Install / Update Codex Hooks…** from the dashboard's menu-bar icon.
+After confirmation, it merges this app's four entries into
+`~/.codex/hooks/hooks.json`, preserves existing hooks, and never changes
+`notify`. Reinstall hooks after moving the app, so the configured helper path
+matches the new app location.
 
 The configuration intentionally contains only four low-volume state transitions:
 

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#202832"/>
+      <stop offset="1" stop-color="#090c10"/>
+    </linearGradient>
+    <radialGradient id="blue" cx="35%" cy="28%" r="70%">
+      <stop offset="0" stop-color="#effbff"/>
+      <stop offset="0.25" stop-color="#61d8ff"/>
+      <stop offset="1" stop-color="#0776e8"/>
+    </radialGradient>
+    <radialGradient id="green" cx="35%" cy="28%" r="70%">
+      <stop offset="0" stop-color="#effff3"/>
+      <stop offset="0.25" stop-color="#72f3a2"/>
+      <stop offset="1" stop-color="#13a756"/>
+    </radialGradient>
+    <radialGradient id="amber" cx="35%" cy="28%" r="70%">
+      <stop offset="0" stop-color="#fff8e5"/>
+      <stop offset="0.25" stop-color="#ffc65b"/>
+      <stop offset="1" stop-color="#e87508"/>
+    </radialGradient>
+    <filter id="glowBlue" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="18"/></filter>
+    <filter id="glowGreen" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="18"/></filter>
+    <filter id="glowAmber" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="18"/></filter>
+  </defs>
+
+  <rect x="38" y="38" width="948" height="948" rx="220" fill="url(#background)" stroke="#3e4a57" stroke-width="18"/>
+  <g fill="none" stroke="#5c6c7b" stroke-opacity=".42" stroke-width="10">
+    <rect x="108" y="132" width="808" height="196" rx="98"/>
+    <rect x="108" y="414" width="808" height="196" rx="98"/>
+    <rect x="108" y="696" width="808" height="196" rx="98"/>
+  </g>
+
+  <!-- One active thread: all six lamps work together. -->
+  <g fill="#0d9df5" opacity=".72" filter="url(#glowBlue)"><circle cx="172" cy="230" r="52"/><circle cx="308" cy="230" r="52"/><circle cx="444" cy="230" r="52"/><circle cx="580" cy="230" r="52"/><circle cx="716" cy="230" r="52"/><circle cx="852" cy="230" r="52"/></g>
+  <g fill="url(#blue)"><circle cx="172" cy="230" r="48"/><circle cx="308" cy="230" r="48"/><circle cx="444" cy="230" r="48"/><circle cx="580" cy="230" r="48"/><circle cx="716" cy="230" r="48"/><circle cx="852" cy="230" r="48"/></g>
+
+  <!-- Three two-lamp partitions: working, finished, and attention needed. -->
+  <g opacity=".72"><g fill="#0d9df5" filter="url(#glowBlue)"><circle cx="172" cy="512" r="52"/><circle cx="308" cy="512" r="52"/></g><g fill="#20c56a" filter="url(#glowGreen)"><circle cx="444" cy="512" r="52"/><circle cx="580" cy="512" r="52"/></g><g fill="#f08e12" filter="url(#glowAmber)"><circle cx="716" cy="512" r="52"/><circle cx="852" cy="512" r="52"/></g></g>
+  <g><circle cx="172" cy="512" r="48" fill="url(#blue)"/><circle cx="308" cy="512" r="48" fill="url(#blue)"/><circle cx="444" cy="512" r="48" fill="url(#green)"/><circle cx="580" cy="512" r="48" fill="url(#green)"/><circle cx="716" cy="512" r="48" fill="url(#amber)"/><circle cx="852" cy="512" r="48" fill="url(#amber)"/></g>
+
+  <!-- Six independent threads: neighboring lamps never share a status color. -->
+  <g opacity=".72"><circle cx="172" cy="794" r="52" fill="#0d9df5" filter="url(#glowBlue)"/><circle cx="308" cy="794" r="52" fill="#20c56a" filter="url(#glowGreen)"/><circle cx="444" cy="794" r="52" fill="#f08e12" filter="url(#glowAmber)"/><circle cx="580" cy="794" r="52" fill="#0d9df5" filter="url(#glowBlue)"/><circle cx="716" cy="794" r="52" fill="#20c56a" filter="url(#glowGreen)"/><circle cx="852" cy="794" r="52" fill="#f08e12" filter="url(#glowAmber)"/></g>
+  <g><circle cx="172" cy="794" r="48" fill="url(#blue)"/><circle cx="308" cy="794" r="48" fill="url(#green)"/><circle cx="444" cy="794" r="48" fill="url(#amber)"/><circle cx="580" cy="794" r="48" fill="url(#blue)"/><circle cx="716" cy="794" r="48" fill="url(#green)"/><circle cx="852" cy="794" r="48" fill="url(#amber)"/></g>
+</svg>
