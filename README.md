@@ -18,6 +18,10 @@ prompt text and other fields are not broadcast. It also continues to accept a
 plain command-line event name for the older `notify` integration, but hooks are
 the preferred path.
 
+## Release
+
+There is a release version of the app. Not signed. You can clone this repo and build it or you download the app and see if you can get it to run. 
+
 ## Run from source
 
 ```sh
@@ -58,7 +62,7 @@ Choose **Install / Update Codex Hooks…** from the dashboard's menu-bar icon.
 After confirmation, it merges this app's four entries into
 `~/.codex/hooks.json`, preserves existing hooks, and never changes
 `notify`. Reinstall hooks after moving the app, so the configured helper path
-matches the new app location.
+matches the new app location. Not well tested if you have already exsiting hooks. 
 
 The configuration intentionally contains only four low-volume state transitions:
 
@@ -72,9 +76,6 @@ The configuration intentionally contains only four low-volume state transitions:
 Codex should ask you to review and trust a newly installed command hook. Keep
 that review step; the hook runs a local executable from this checkout.
 
-This prototype uses distributed notifications, so the dashboard must already be
-running when `turn-ended` fires. That is deliberate for the first vertical slice;
-a later version can replace it with a socket and launch-at-login app lifecycle.
 
 ## Verify
 
