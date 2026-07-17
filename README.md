@@ -11,7 +11,9 @@ Additional sessions divide the strip as evenly as possible. If active sessions
 exceed the configured base, the strip expands with one light per extra session.
 When a newer thread starts, completed segments clear and active sessions
 rebalance; for example, three 2-light groups with two completed threads become
-two 3-light groups.
+two 3-light groups. Every new `UserPromptSubmit` also clears completed segments,
+so continuing a finished thread returns the strip to its fully consolidated
+layout. **Clear Done Lights** offers the same reset manually.
 
 It forwards only the event name, session ID, turn ID, and working directory;
 prompt text and other fields are not broadcast. It also continues to accept a
@@ -59,22 +61,27 @@ The hook configuration is deliberately separate from `notify`; the existing
 `notify` value in `~/.codex/config.toml` remains unchanged.
 
 Choose **Install / Update Codex Hooks…** from the dashboard's menu-bar icon.
-After confirmation, it merges this app's four entries into
+After confirmation, it merges this app's six entries into
 `~/.codex/hooks.json`, preserves existing hooks, and never changes
 `notify`. Reinstall hooks after moving the app, so the configured helper path
-matches the new app location. Not well tested if you have already exsiting hooks. 
+matches the new app location. Not well tested if you have already existing hooks. 
 
-The configuration intentionally contains only four low-volume state transitions:
+The configuration intentionally contains only the lifecycle transitions needed
+for the dashboard:
 
 | Codex event | Dashboard meaning |
 | --- | --- |
 | `SessionStart` | a thread registered |
 | `UserPromptSubmit` | work started (blue) |
+| `PreToolUse` | tool about to run (red scanner) |
+| `PostToolUse` | resumed work (blue) |
 | `PermissionRequest` | attention needed (amber) |
 | `Stop` | work finished (green) |
 
 Codex should ask you to review and trust a newly installed command hook. Keep
-that review step; the hook runs a local executable from this checkout.
+that review step; the hook runs a local executable from this checkout. You can go to settings -> hooks to manually review them. 
+
+The PreToolUse runs before the PermissionRequest and nothing runs after being granted so the red in that sequence does not really appear and the blue will only run once the tool use is done and PostToolUse is called. 
 
 
 ## Verify

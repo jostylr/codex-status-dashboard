@@ -22,6 +22,28 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/ai-repos/codex-monitor/.build/release/codex-status-hook\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/ai-repos/codex-monitor/.build/release/codex-status-hook\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
     "PermissionRequest": [
       {
         "hooks": [

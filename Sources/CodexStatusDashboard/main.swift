@@ -14,6 +14,7 @@ private final class LightStripView: NSView {
     private enum State: Equatable {
         case idle
         case working
+        case preparingTool
         case waiting
         case complete
     }
@@ -63,8 +64,10 @@ private final class LightStripView: NSView {
         let state: State?
 
         switch normalizedName {
-        case "userpromptsubmit", "pretooluse", "posttooluse":
+        case "userpromptsubmit", "posttooluse":
             state = .working
+        case "pretooluse":
+            state = .preparingTool
         case "permissionrequest":
             state = .waiting
         case "stop", "turn-ended":
@@ -86,9 +89,23 @@ private final class LightStripView: NSView {
 
         let id = sessionID ?? "legacy-notify"
         guard let state else { return }
-        updateSlot(sessionID: id, state: state)
+        updateSlot(
+            sessionID: id,
+            state: state,
+            clearCompletedFirst: normalizedName == "userpromptsubmit"
+        )
         updateToolTip()
         needsDisplay = true
+    }
+
+    @discardableResult
+    func clearCompletedSlots() -> Bool {
+        let originalCount = slots.count
+        slots.removeAll { $0.state == .complete }
+        guard slots.count != originalCount else { return false }
+        updateToolTip()
+        needsDisplay = true
+        return true
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -151,6 +168,7 @@ private final class LightStripView: NSView {
         switch state {
         case .idle: .systemGray
         case .working: .systemBlue
+        case .preparingTool: .systemRed
         case .waiting: .systemOrange
         case .complete: .systemGreen
         }
@@ -160,7 +178,7 @@ private final class LightStripView: NSView {
         switch state {
         case .idle:
             return 0.1
-        case .working:
+        case .working, .preparingTool:
             guard count > 1 else {
                 return 0.65 + 0.35 * ((sin(phase) + 1) / 2)
             }
@@ -182,8 +200,11 @@ private final class LightStripView: NSView {
         return (0..<groupCount).map { index in base + (index < remainder ? 1 : 0) }
     }
 
-    private func updateSlot(sessionID: String, state: State) {
+    private func updateSlot(sessionID: String, state: State, clearCompletedFirst: Bool) {
         let now = Date()
+        if clearCompletedFirst {
+            slots.removeAll { $0.state == .complete }
+        }
         if let index = slots.firstIndex(where: { $0.sessionID == sessionID }) {
             slots[index].state = state
             slots[index].lastUpdated = now
@@ -213,6 +234,7 @@ private final class LightStripView: NSView {
         switch state {
         case .idle: "idle"
         case .working: "working"
+        case .preparingTool: "preparing tool"
         case .waiting: "needs approval"
         case .complete: "complete"
         }
@@ -227,7 +249,7 @@ private final class LightStripView: NSView {
     }
 
     @objc private func tick() {
-        phase += slots.contains(where: { $0.state == .working }) ? 0.18 : 0.1
+        phase += slots.contains(where: { $0.state == .working || $0.state == .preparingTool }) ? 0.18 : 0.1
         needsDisplay = true
     }
 }
@@ -331,6 +353,14 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         restorePositionItem.target = self
         menu.addItem(restorePositionItem)
 
+        let clearDoneItem = NSMenuItem(
+            title: "Clear Done Lights",
+            action: #selector(clearDoneLights),
+            keyEquivalent: ""
+        )
+        clearDoneItem.target = self
+        menu.addItem(clearDoneItem)
+
         let lightCountItem = NSMenuItem(title: "Base Lights", action: nil, keyEquivalent: "")
         let lightCountMenu = NSMenu(title: "Base Lights")
         for count in Self.lightCountChoices {
@@ -386,6 +416,11 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         panel.setFrameOrigin(defaultPanelOrigin())
     }
 
+    @objc private func clearDoneLights() {
+        guard lightStrip.clearCompletedSlots() else { return }
+        resizePanelToContents()
+    }
+
     @objc private func selectBaseLightCount(_ sender: NSMenuItem) {
         Self.baseLightCount = sender.tag
         lightStrip.setBaseLightCount(sender.tag)
@@ -397,7 +432,7 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
             let helperURL = try CodexHookInstaller.helperExecutableURL()
             let alert = NSAlert()
             alert.messageText = "Install Codex Status hooks?"
-            alert.informativeText = "This will merge four lifecycle hooks into \(CodexHookInstaller.configurationURL.path). Existing hooks and your notify setting will remain unchanged. Codex will still ask you to trust the new command hook."
+            alert.informativeText = "This will merge six lifecycle hooks into \(CodexHookInstaller.configurationURL.path). Existing hooks and your notify setting will remain unchanged. Codex will still ask you to trust the new command hook."
             alert.addButton(withTitle: "Install Hooks")
             alert.addButton(withTitle: "Cancel")
             guard alert.runModal() == .alertFirstButtonReturn else { return }

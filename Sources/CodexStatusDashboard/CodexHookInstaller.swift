@@ -23,7 +23,14 @@ struct CodexHookInstaller {
         }
     }
 
-    static let eventNames = ["SessionStart", "UserPromptSubmit", "PermissionRequest", "Stop"]
+    static let eventNames = [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PermissionRequest",
+        "Stop",
+    ]
 
     static var configurationURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
