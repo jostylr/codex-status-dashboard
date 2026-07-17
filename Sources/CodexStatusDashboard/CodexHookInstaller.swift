@@ -27,7 +27,7 @@ struct CodexHookInstaller {
 
     static var configurationURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".codex/hooks/hooks.json")
+            .appendingPathComponent(".codex/hooks.json")
     }
 
     static func helperExecutableURL() throws -> URL {

@@ -46,6 +46,8 @@ open ".build/Codex Status Dashboard.app"
 The dashboard runs as a menu-bar app. Its menu provides Show/Hide, Quit, a
 persisted Base Lights preference, Hook installation, and Launch at Login.
 The bundled app icon is generated from [Resources/AppIcon.svg](Resources/AppIcon.svg).
+Dragging the strip saves its screen position; choose **Restore Default Position**
+from the same menu to return it to the lower-left screen edge.
 
 ## Install lifecycle hooks
 
@@ -54,7 +56,7 @@ The hook configuration is deliberately separate from `notify`; the existing
 
 Choose **Install / Update Codex Hooks…** from the dashboard's menu-bar icon.
 After confirmation, it merges this app's four entries into
-`~/.codex/hooks/hooks.json`, preserves existing hooks, and never changes
+`~/.codex/hooks.json`, preserves existing hooks, and never changes
 `notify`. Reinstall hooks after moving the app, so the configured helper path
 matches the new app location.
 

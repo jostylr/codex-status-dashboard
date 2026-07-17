@@ -237,6 +237,8 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
     private static let baseLightCountKey = "base-light-count"
     private static let defaultBaseLightCount = 6
     private static let lightCountChoices = [4, 6, 8, 10, 12]
+    private static let panelOriginXKey = "panel-origin-x"
+    private static let panelOriginYKey = "panel-origin-y"
 
     private let panel = StatusPanel(
         contentRect: NSRect(x: 0, y: 0, width: 236, height: 44),
@@ -261,6 +263,12 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         NSApp.setActivationPolicy(.accessory)
         configurePanel()
         configureStatusItem()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(panelDidMove(_:)),
+            name: NSWindow.didMoveNotification,
+            object: panel
+        )
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(receiveHookEvent(_:)),
@@ -274,6 +282,7 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
 
     func applicationWillTerminate(_ notification: Notification) {
         DistributedNotificationCenter.default().removeObserver(self)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didMoveNotification, object: panel)
     }
 
     @objc private func receiveHookEvent(_ notification: Notification) {
@@ -313,6 +322,14 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         dashboardItem.target = self
         menu.addItem(dashboardItem)
         dashboardMenuItem = dashboardItem
+
+        let restorePositionItem = NSMenuItem(
+            title: "Restore Default Position",
+            action: #selector(restoreDefaultPosition),
+            keyEquivalent: ""
+        )
+        restorePositionItem.target = self
+        menu.addItem(restorePositionItem)
 
         let lightCountItem = NSMenuItem(title: "Base Lights", action: nil, keyEquivalent: "")
         let lightCountMenu = NSMenu(title: "Base Lights")
@@ -362,6 +379,11 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         } else {
             panel.orderFrontRegardless()
         }
+    }
+
+    @objc private func restoreDefaultPosition() {
+        clearSavedPanelOrigin()
+        panel.setFrameOrigin(defaultPanelOrigin())
     }
 
     @objc private func selectBaseLightCount(_ sender: NSMenuItem) {
@@ -417,6 +439,11 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         NSApp.terminate(nil)
     }
 
+    @objc private func panelDidMove(_ notification: Notification) {
+        UserDefaults.standard.set(panel.frame.minX, forKey: Self.panelOriginXKey)
+        UserDefaults.standard.set(panel.frame.minY, forKey: Self.panelOriginYKey)
+    }
+
     private func resizePanelToContents() {
         panel.setContentSize(NSSize(width: lightStrip.preferredWidth, height: 44))
     }
@@ -451,12 +478,41 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
     }
 
     private func positionPanel() {
-        guard let screen = NSScreen.main else { return }
+        if let savedOrigin = savedPanelOrigin(), isVisibleOnAnyScreen(origin: savedOrigin) {
+            panel.setFrameOrigin(savedOrigin)
+            return
+        }
+        panel.setFrameOrigin(defaultPanelOrigin())
+    }
+
+    private func defaultPanelOrigin() -> NSPoint {
+        guard let screen = NSScreen.main else { return .zero }
         // The light-strip border is inset by two points inside the panel. Align
         // the panel with the physical screen edge so that inset is also the
         // visible gap below and to the left of the border.
         let frame = screen.frame
-        panel.setFrameOrigin(NSPoint(x: frame.minX, y: frame.minY))
+        return NSPoint(x: frame.minX, y: frame.minY)
+    }
+
+    private func savedPanelOrigin() -> NSPoint? {
+        guard
+            UserDefaults.standard.object(forKey: Self.panelOriginXKey) != nil,
+            UserDefaults.standard.object(forKey: Self.panelOriginYKey) != nil
+        else { return nil }
+        return NSPoint(
+            x: UserDefaults.standard.double(forKey: Self.panelOriginXKey),
+            y: UserDefaults.standard.double(forKey: Self.panelOriginYKey)
+        )
+    }
+
+    private func clearSavedPanelOrigin() {
+        UserDefaults.standard.removeObject(forKey: Self.panelOriginXKey)
+        UserDefaults.standard.removeObject(forKey: Self.panelOriginYKey)
+    }
+
+    private func isVisibleOnAnyScreen(origin: NSPoint) -> Bool {
+        let frame = NSRect(origin: origin, size: panel.frame.size)
+        return NSScreen.screens.contains { $0.frame.intersects(frame) }
     }
 }
 
