@@ -20,6 +20,9 @@ prompt text and other fields are not broadcast. It also continues to accept a
 plain command-line event name for the older `notify` integration, but hooks are
 the preferred path.
 
+---
+If you find this useful, please consider [supporting my efforts](https://www.buymeacoffee.com/jostylr).
+
 ## Release
 
 There is a release version of the app. Not signed. You can clone this repo and build it or you download the app and see if you can get it to run. 
