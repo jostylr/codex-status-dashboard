@@ -17,6 +17,7 @@ private final class LightStripView: NSView {
         case preparingTool
         case waiting
         case complete
+        case failed
     }
 
     private struct ThreadSlot {
@@ -48,7 +49,8 @@ private final class LightStripView: NSView {
         let diameter: CGFloat = 18
         let gap: CGFloat = 9
         let groupGap: CGFloat = 23
-        let lightsWidth = CGFloat(visibleLightCount) * diameter
+        let lightsWidth =
+            CGFloat(visibleLightCount) * diameter
             + CGFloat(visibleLightCount - groupCount) * gap
             + CGFloat(groupCount - 1) * groupGap
         return max(236, lightsWidth + 32)
@@ -59,7 +61,7 @@ private final class LightStripView: NSView {
         needsDisplay = true
     }
 
-    func apply(eventName: String, sessionID: String?) {
+    func apply(eventName: String, sessionID: String?, stopReason: String?) {
         let normalizedName = eventName.lowercased()
         let state: State?
 
@@ -71,7 +73,13 @@ private final class LightStripView: NSView {
         case "permissionrequest":
             state = .waiting
         case "stop", "turn-ended":
-            state = .complete
+            if isInterruption(stopReason) {
+                clear(sessionID: sessionID)
+                toolTip = "Codex task interrupted"
+                needsDisplay = true
+                return
+            }
+            state = isProblematicStop(stopReason) ? .failed : .complete
         case "sessionstart":
             // A session is visible only after it has activity. This avoids an
             // unopened thread consuming lights from a working thread.
@@ -106,6 +114,12 @@ private final class LightStripView: NSView {
         updateToolTip()
         needsDisplay = true
         return true
+    }
+
+    func clearAllSlots() {
+        slots.removeAll()
+        updateToolTip()
+        needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -171,6 +185,7 @@ private final class LightStripView: NSView {
         case .preparingTool: .systemRed
         case .waiting: .systemOrange
         case .complete: .systemGreen
+        case .failed: NSColor(calibratedRed: 0.48, green: 0.04, blue: 0.05, alpha: 1)
         }
     }
 
@@ -191,6 +206,8 @@ private final class LightStripView: NSView {
             return 0.32 + 0.68 * ((sin(phase + CGFloat(groupIndex) * 0.6) + 1) / 2)
         case .complete:
             return 1
+        case .failed:
+            return 0.72
         }
     }
 
@@ -203,7 +220,7 @@ private final class LightStripView: NSView {
     private func updateSlot(sessionID: String, state: State, clearCompletedFirst: Bool) {
         let now = Date()
         if clearCompletedFirst {
-            slots.removeAll { $0.state == .complete }
+            slots.removeAll { $0.state == .complete || $0.state == .failed }
         }
         if let index = slots.firstIndex(where: { $0.sessionID == sessionID }) {
             slots[index].state = state
@@ -215,9 +232,35 @@ private final class LightStripView: NSView {
         // Completion stays visible until another thread becomes active. At that
         // point we discard every completed segment and rebalance the whole strip
         // among the currently active threads.
-        slots.removeAll { $0.state == .complete }
+        slots.removeAll { $0.state == .complete || $0.state == .failed }
 
         slots.append(slot)
+    }
+
+    private func clear(sessionID: String?) {
+        if let sessionID {
+            slots.removeAll { $0.sessionID == sessionID }
+        } else {
+            slots.removeAll()
+        }
+        updateToolTip()
+    }
+
+    private func isInterruption(_ stopReason: String?) -> Bool {
+        guard let stopReason else { return false }
+        let reason = stopReason.lowercased()
+        return reason.contains("interrupt") || reason.contains("abort") || reason.contains("cancel")
+    }
+
+    private func isProblematicStop(_ stopReason: String?) -> Bool {
+        guard let stopReason else { return false }
+        let reason = stopReason.lowercased()
+        return reason.contains("error")
+            || reason.contains("fail")
+            || reason.contains("timeout")
+            || reason.contains("limit")
+            || reason.contains("budget")
+            || reason.contains("quota")
     }
 
     private func updateToolTip() {
@@ -237,6 +280,7 @@ private final class LightStripView: NSView {
         case .preparingTool: "preparing tool"
         case .waiting: "needs approval"
         case .complete: "complete"
+        case .failed: "failed"
         }
     }
 
@@ -249,7 +293,9 @@ private final class LightStripView: NSView {
     }
 
     @objc private func tick() {
-        phase += slots.contains(where: { $0.state == .working || $0.state == .preparingTool }) ? 0.18 : 0.1
+        phase +=
+            slots.contains(where: { $0.state == .working || $0.state == .preparingTool })
+            ? 0.18 : 0.1
         needsDisplay = true
     }
 }
@@ -304,7 +350,8 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
 
     func applicationWillTerminate(_ notification: Notification) {
         DistributedNotificationCenter.default().removeObserver(self)
-        NotificationCenter.default.removeObserver(self, name: NSWindow.didMoveNotification, object: panel)
+        NotificationCenter.default.removeObserver(
+            self, name: NSWindow.didMoveNotification, object: panel)
     }
 
     @objc private func receiveHookEvent(_ notification: Notification) {
@@ -312,7 +359,11 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
             let eventName = values[StatusNotification.eventNameKey]
         else { return }
 
-        lightStrip.apply(eventName: eventName, sessionID: values[StatusNotification.sessionIDKey])
+        lightStrip.apply(
+            eventName: eventName,
+            sessionID: values[StatusNotification.sessionIDKey],
+            stopReason: values[StatusNotification.stopReasonKey]
+        )
         resizePanelToContents()
     }
 
@@ -333,14 +384,17 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
 
     private func configureStatusItem() {
         guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: "circle.grid.3x3.fill", accessibilityDescription: "Codex Status Dashboard")
+        button.image = NSImage(
+            systemSymbolName: "circle.grid.3x3.fill",
+            accessibilityDescription: "Codex Status Dashboard")
         button.image?.isTemplate = true
         button.toolTip = "Codex Status Dashboard"
 
         let menu = NSMenu()
         menu.delegate = self
 
-        let dashboardItem = NSMenuItem(title: "Hide Dashboard", action: #selector(toggleDashboard), keyEquivalent: "")
+        let dashboardItem = NSMenuItem(
+            title: "Hide Dashboard", action: #selector(toggleDashboard), keyEquivalent: "")
         dashboardItem.target = self
         menu.addItem(dashboardItem)
         dashboardMenuItem = dashboardItem
@@ -361,10 +415,19 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         clearDoneItem.target = self
         menu.addItem(clearDoneItem)
 
+        let clearAllItem = NSMenuItem(
+            title: "Clear All Lights",
+            action: #selector(clearAllLights),
+            keyEquivalent: ""
+        )
+        clearAllItem.target = self
+        menu.addItem(clearAllItem)
+
         let lightCountItem = NSMenuItem(title: "Base Lights", action: nil, keyEquivalent: "")
         let lightCountMenu = NSMenu(title: "Base Lights")
         for count in Self.lightCountChoices {
-            let item = NSMenuItem(title: "\(count)", action: #selector(selectBaseLightCount(_:)), keyEquivalent: "")
+            let item = NSMenuItem(
+                title: "\(count)", action: #selector(selectBaseLightCount(_:)), keyEquivalent: "")
             item.target = self
             item.tag = count
             lightCountMenu.addItem(item)
@@ -374,17 +437,26 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
 
         menu.addItem(.separator())
 
-        let installItem = NSMenuItem(title: "Install / Update Codex Hooks…", action: #selector(installHooks), keyEquivalent: "")
+        let installItem = NSMenuItem(
+            title: "Install / Update Codex Hooks…", action: #selector(installHooks),
+            keyEquivalent: "")
         installItem.target = self
         menu.addItem(installItem)
 
-        let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        let loginItem = NSMenuItem(
+            title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         loginItem.target = self
         menu.addItem(loginItem)
         self.loginItem = loginItem
 
         menu.addItem(.separator())
-        let quitItem = NSMenuItem(title: "Quit Codex Status Dashboard", action: #selector(quit), keyEquivalent: "q")
+        let aboutItem = NSMenuItem(
+            title: "About & Status…", action: #selector(showAboutAndStatus), keyEquivalent: "")
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+
+        let quitItem = NSMenuItem(
+            title: "Quit Codex Status Dashboard", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
         statusItem.menu = menu
@@ -400,7 +472,9 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         }
         loginItem?.isEnabled = isRunningAsAppBundle
         loginItem?.state = launchAtLoginEnabled ? .on : .off
-        loginItem?.toolTip = isRunningAsAppBundle ? nil : "Available after the dashboard is installed as a .app bundle."
+        loginItem?.toolTip =
+            isRunningAsAppBundle
+            ? nil : "Available after the dashboard is installed as a .app bundle."
     }
 
     @objc private func toggleDashboard() {
@@ -421,6 +495,26 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         resizePanelToContents()
     }
 
+    @objc private func clearAllLights() {
+        lightStrip.clearAllSlots()
+        resizePanelToContents()
+    }
+
+    @objc private func showAboutAndStatus() {
+        let alert = NSAlert()
+        alert.messageText = "Codex Status Dashboard"
+        alert.informativeText =
+            "Monitors Codex processing. Be sure to install the hooks.\\nBlue swooshing: Codex thinking.\nRed swooshing: Codex using a tool.\nOrange pulsing: Codex needs approval.\nGreen solid: Codex done.\nDark Red solid: Aborted.\n\nSome interrupts do not yield notifications. Use Clear-All-Lights to clear. Clearing happens automatically for solid lights when Codex receives any new prompt.\n\nHooks file: \(CodexHookInstaller.configurationURL.path)\nBase lights: \(Self.baseLightCount)\n\nDeveloper: James Taylor"
+        alert.addButton(withTitle: "Git Home")
+        alert.addButton(withTitle: "OK")
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            if let url = URL(string: "https://github.com/jostylr/codex-status-dashboard") {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
     @objc private func selectBaseLightCount(_ sender: NSMenuItem) {
         Self.baseLightCount = sender.tag
         lightStrip.setBaseLightCount(sender.tag)
@@ -432,15 +526,19 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
             let helperURL = try CodexHookInstaller.helperExecutableURL()
             let alert = NSAlert()
             alert.messageText = "Install Codex Status hooks?"
-            alert.informativeText = "This will merge six lifecycle hooks into \(CodexHookInstaller.configurationURL.path). Existing hooks and your notify setting will remain unchanged. Codex will still ask you to trust the new command hook."
+            alert.informativeText =
+                "This will merge six lifecycle hooks into \(CodexHookInstaller.configurationURL.path). Existing hooks and your notify setting will remain unchanged. Codex will still ask you to trust the new command hook."
             alert.addButton(withTitle: "Install Hooks")
             alert.addButton(withTitle: "Cancel")
             guard alert.runModal() == .alertFirstButtonReturn else { return }
 
             let result = try CodexHookInstaller.install(helperURL: helperURL)
             let confirmation = NSAlert()
-            confirmation.messageText = result.addedEvents.isEmpty ? "Codex hooks are already installed" : "Codex hooks installed"
-            confirmation.informativeText = result.addedEvents.isEmpty
+            confirmation.messageText =
+                result.addedEvents.isEmpty
+                ? "Codex hooks are already installed" : "Codex hooks installed"
+            confirmation.informativeText =
+                result.addedEvents.isEmpty
                 ? "No changes were needed in \(result.configurationURL.path)."
                 : "Added hooks for \(result.addedEvents.joined(separator: ", ")). Restart Codex Desktop, then approve the hook trust prompt when it appears."
             confirmation.runModal()
@@ -453,7 +551,8 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         guard isRunningAsAppBundle else {
             showMessage(
                 title: "Install the app first",
-                message: "Launch at Login is available once Codex Status Dashboard is running from an installed .app bundle."
+                message:
+                    "Launch at Login is available once Codex Status Dashboard is running from an installed .app bundle."
             )
             return
         }

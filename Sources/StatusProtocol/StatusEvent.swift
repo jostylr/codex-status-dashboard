@@ -6,6 +6,7 @@ public enum StatusNotification {
     public static let sessionIDKey = "session_id"
     public static let turnIDKey = "turn_id"
     public static let workingDirectoryKey = "cwd"
+    public static let stopReasonKey = "stop_reason"
     public static let receivedAtKey = "received_at"
 }
 
@@ -17,17 +18,20 @@ public struct StatusEvent: Equatable, Sendable {
     public let sessionID: String?
     public let turnID: String?
     public let workingDirectory: String?
+    public let stopReason: String?
 
     public init(
         eventName: String,
         sessionID: String? = nil,
         turnID: String? = nil,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        stopReason: String? = nil
     ) {
         self.eventName = eventName
         self.sessionID = sessionID
         self.turnID = turnID
         self.workingDirectory = workingDirectory
+        self.stopReason = stopReason
     }
 
     public init?(hookData: Data) {
@@ -43,7 +47,8 @@ public struct StatusEvent: Equatable, Sendable {
             eventName: eventName,
             sessionID: payload["session_id"] as? String,
             turnID: payload["turn_id"] as? String,
-            workingDirectory: payload["cwd"] as? String
+            workingDirectory: payload["cwd"] as? String,
+            stopReason: (payload["stop_reason"] as? String) ?? (payload["reason"] as? String)
         )
     }
 
@@ -59,6 +64,7 @@ public struct StatusEvent: Equatable, Sendable {
         if let sessionID { values[StatusNotification.sessionIDKey] = sessionID }
         if let turnID { values[StatusNotification.turnIDKey] = turnID }
         if let workingDirectory { values[StatusNotification.workingDirectoryKey] = workingDirectory }
+        if let stopReason { values[StatusNotification.stopReasonKey] = stopReason }
         values[StatusNotification.receivedAtKey] = ISO8601DateFormatter().string(from: Date())
         return values
     }

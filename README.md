@@ -54,6 +54,11 @@ persisted Base Lights preference, Hook installation, and Launch at Login.
 The bundled app icon is generated from [Resources/AppIcon.svg](Resources/AppIcon.svg).
 Dragging the strip saves its screen position; choose **Restore Default Position**
 from the same menu to return it to the lower-left screen edge.
+The menu also provides **Clear Done Lights**, **Clear All Lights**, and
+**About & Status…**. An interrupted task disappears automatically when Codex
+supplies an interruption reason in its `Stop` hook payload. A failed, timed-out,
+quota-limited, or otherwise problematic `Stop` instead remains dark red until a
+new prompt clears and rebalances the strip.
 
 ## Install lifecycle hooks
 

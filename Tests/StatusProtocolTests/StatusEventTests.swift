@@ -3,7 +3,7 @@ import Testing
 @testable import StatusProtocol
 
 @Test func parsesRelevantHookFields() throws {
-    let json = #"{"hook_event_name":"UserPromptSubmit","session_id":"session-1","turn_id":"turn-1","cwd":"/tmp/project","prompt":"do not forward me"}"#
+    let json = #"{"hook_event_name":"UserPromptSubmit","session_id":"session-1","turn_id":"turn-1","cwd":"/tmp/project","stop_reason":"interrupted","prompt":"do not forward me"}"#
 
     let event = try #require(StatusEvent(hookData: Data(json.utf8)))
 
@@ -11,6 +11,7 @@ import Testing
     #expect(event.sessionID == "session-1")
     #expect(event.turnID == "turn-1")
     #expect(event.workingDirectory == "/tmp/project")
+    #expect(event.stopReason == "interrupted")
     #expect(event.notificationUserInfo["prompt"] == nil)
 }
 
