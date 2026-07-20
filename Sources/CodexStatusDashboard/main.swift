@@ -450,6 +450,12 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         self.loginItem = loginItem
 
         menu.addItem(.separator())
+
+        let updateItem = NSMenuItem(
+            title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(updateItem)
+
         let aboutItem = NSMenuItem(
             title: "About & Status…", action: #selector(showAboutAndStatus), keyEquivalent: "")
         aboutItem.target = self
@@ -513,6 +519,37 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
                 NSWorkspace.shared.open(url)
             }
         }
+    }
+
+    @objc private func checkForUpdates() {
+        statusItem.button?.toolTip = "Checking for Codex Status Dashboard updates…"
+        Task {
+            defer { statusItem.button?.toolTip = "Codex Status Dashboard" }
+            do {
+                let result = try await UpdateChecker.check(currentVersion: applicationVersion)
+                if result.isNewer {
+                    showAvailableUpdate(result.release)
+                } else {
+                    showMessage(
+                        title: "You're up to date",
+                        message: "Codex Status Dashboard \(applicationVersion) is current. Latest release: \(result.release.tagName)."
+                    )
+                }
+            } catch {
+                showError(title: "Could not check for updates", error: error)
+            }
+        }
+    }
+
+    private func showAvailableUpdate(_ release: UpdateChecker.Release) {
+        let alert = NSAlert()
+        alert.messageText = "Update available"
+        alert.informativeText =
+            "Codex Status Dashboard \(release.tagName) is available. The download page will open in your browser; quit the dashboard before replacing the copy in Applications."
+        alert.addButton(withTitle: "Open Download Page")
+        alert.addButton(withTitle: "Not Now")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        NSWorkspace.shared.open(release.htmlURL)
     }
 
     @objc private func selectBaseLightCount(_ sender: NSMenuItem) {
@@ -588,6 +625,10 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
 
     private var launchAtLoginEnabled: Bool {
         isRunningAsAppBundle && SMAppService.mainApp.status == .enabled
+    }
+
+    private var applicationVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
     }
 
     private static var baseLightCount: Int {

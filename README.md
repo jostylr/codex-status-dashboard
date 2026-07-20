@@ -24,6 +24,20 @@ the preferred path.
 
 There is a release version of the app. Not signed. You can clone this repo and build it or you download the app and see if you can get it to run. 
 
+### Manual updates
+
+**Check for Updates…** queries GitHub's public
+`/repos/jostylr/codex-status-dashboard/releases/latest` endpoint. There is no
+separate update server, account, or automatic installation. A newer stable
+GitHub Release makes the menu offer its download page; the person using the app
+chooses whether to download it and manually replace their existing `.app`.
+
+When publishing a release, use a numeric tag such as `v0.3.0`, update
+`CFBundleShortVersionString` in `Resources/Info.plist` to the same version, and
+attach the built app (normally as a `.zip` or `.dmg`) to that GitHub Release.
+Draft and pre-release GitHub Releases are intentionally ignored by the
+endpoint.
+
 ## Run from source
 
 ```sh
@@ -54,8 +68,11 @@ persisted Base Lights preference, Hook installation, and Launch at Login.
 The bundled app icon is generated from [Resources/AppIcon.svg](Resources/AppIcon.svg).
 Dragging the strip saves its screen position; choose **Restore Default Position**
 from the same menu to return it to the lower-left screen edge.
-The menu also provides **Clear Done Lights**, **Clear All Lights**, and
-**About & Status…**. An interrupted task disappears automatically when Codex
+The menu also provides **Clear Done Lights**, **Clear All Lights**, a manual
+**Check for Updates…** action, and **About & Status…**. Update checks contact
+only the project's public GitHub Releases endpoint; they never download or
+install anything automatically. If a newer release exists, the app offers to
+open its download page. An interrupted task disappears automatically when Codex
 supplies an interruption reason in its `Stop` hook payload. A failed, timed-out,
 quota-limited, or otherwise problematic `Stop` instead remains dark red until a
 new prompt clears and rebalances the strip.
