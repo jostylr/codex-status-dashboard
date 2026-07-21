@@ -10,9 +10,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "StatusProtocol"),
+        .target(name: "DashboardSupport"),
         .executableTarget(
             name: "CodexStatusDashboard",
-            dependencies: ["StatusProtocol"]
+            dependencies: ["StatusProtocol", "DashboardSupport"]
         ),
         .executableTarget(
             name: "CodexStatusHook",
@@ -21,6 +22,10 @@ let package = Package(
         .testTarget(
             name: "StatusProtocolTests",
             dependencies: ["StatusProtocol"]
+        ),
+        .testTarget(
+            name: "DashboardSupportTests",
+            dependencies: ["DashboardSupport"]
         ),
     ]
 )

@@ -4,28 +4,40 @@ An intentionally small, native macOS proof of concept. A Codex lifecycle hook
 starts the `codex-status-hook` executable and supplies a structured event on
 standard input. The helper posts a local macOS distributed notification, and
 `codex-status-dashboard` is a compact, movable floating light strip shown on
-every Space. It sweeps blue while work is active, pulses amber for permission,
-and glows green at completion. Its configurable base is six lights: one session
-uses all six, while two split the strip into left and right groups of three.
-Additional sessions divide the strip as evenly as possible. If active sessions
-exceed the configured base, the strip expands with one light per extra session.
-When a newer thread starts, completed segments clear and active sessions
-rebalance; for example, three 2-light groups with two completed threads become
-two 3-light groups. Every new `UserPromptSubmit` also clears completed segments,
-so continuing a finished thread returns the strip to its fully consolidated
-layout. **Clear Done Lights** offers the same reset manually.
+every Space. It sweeps blue while work is active, pulses orange for permission,
+glows green at completion or dark red if it fails in some ways. Its configurable
+base is six lights: one session uses all six, while two split the strip into
+left and right groups of three.  Additional sessions divide the strip as evenly
+as possible. If active sessions exceed the configured base, the strip expands
+with one light per extra session.  When a newer thread starts, completed
+segments clear and active sessions rebalance; for example, three 2-light groups
+with two completed threads become two 3-light groups. Every new
+`UserPromptSubmit` also clears completed segments, so continuing a finished
+thread returns the strip to its fully consolidated layout. **Clear Done Lights**
+offers the same reset manually.
 
 It forwards only the event name, session ID, turn ID, and working directory;
 prompt text and other fields are not broadcast. It also continues to accept a
 plain command-line event name for the older `notify` integration, but hooks are
 the preferred path.
 
+This was inspired when OpenAI released the $230 Codex Micro, a keypad to work
+with ChatGPT and, particularly, have lights for when the threads need attention.
+I thought the sound of those lights sounded nice and so I had Codex create it.
+This is the result. 
+
 ---
-If you find this useful, please consider [supporting my efforts](https://www.buymeacoffee.com/jostylr).
+If you find this useful, please consider [supporting my
+efforts](https://www.buymeacoffee.com/jostylr). While the coding was done by
+Codex, putting it all together, signing, and uploading it does take some time
+and money. Development on this is basically done, but there are many other
+projects I am working on and financial support allows me to continue.
 
 ## Release
 
-There is a release version of the app. Not signed. You can clone this repo and build it or you download the app and see if you can get it to run. 
+Releases support both Apple Silicon and Intel Macs running macOS 13 or later.
+Public release archives should be signed with Developer ID and notarized by
+Apple. See [sign.md](sign.md) for the complete release procedure.
 
 ### Manual updates
 
@@ -58,11 +70,18 @@ The dashboard should start its blue scanner animation.
 
 ## Build an app bundle
 
-For a stable hook-helper path and Launch at Login support, build the native app
-bundle, move it to `/Applications`, then open it:
+Building requires current Xcode command-line tools and `rsvg-convert`, supplied
+by Homebrew's `librsvg` package:
 
 ```sh
-sh scripts/build-app.sh
+brew install librsvg
+```
+
+For a stable hook-helper path and Launch at Login support, build the universal
+native app bundle, move it to `/Applications`, then open it:
+
+```sh
+zsh scripts/build-app.sh
 open ".build/Codex Status Dashboard.app"
 ```
 
@@ -88,8 +107,10 @@ The hook configuration is deliberately separate from `notify`; the existing
 Choose **Install / Update Codex Hooks…** from the dashboard's menu-bar icon.
 After confirmation, it merges this app's six entries into
 `~/.codex/hooks.json`, preserves existing hooks, and never changes
-`notify`. Reinstall hooks after moving the app, so the configured helper path
-matches the new app location. Not well tested if you have already existing hooks. 
+`notify`. If the app has moved, running the installer again updates this app's
+existing helper paths while leaving unrelated hooks untouched. Before changing
+an existing file, it creates a timestamped `hooks.json.backup-*` copy in the
+same directory. Invalid structures are reported and left unchanged.
 
 The configuration intentionally contains only the lifecycle transitions needed
 for the dashboard:
@@ -114,3 +135,5 @@ The PreToolUse runs before the PermissionRequest and nothing runs after being gr
 ```sh
 swift test
 ```
+
+This project is available under the [MIT License](LICENSE).

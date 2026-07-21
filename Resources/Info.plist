@@ -7,7 +7,7 @@
     <key>CFBundleExecutable</key>
     <string>codex-status-dashboard</string>
     <key>CFBundleIdentifier</key>
-    <string>com.codex-monitor.dashboard</string>
+    <string>com.jostylr.codex-status-dashboard</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleName</key>
@@ -20,7 +20,11 @@
     <string>3</string>
     <key>LSUIElement</key>
     <true/>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 James Taylor. Distributed under the MIT License.</string>
 </dict>
 </plist>

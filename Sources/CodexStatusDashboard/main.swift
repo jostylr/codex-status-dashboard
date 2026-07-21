@@ -1,4 +1,5 @@
 import AppKit
+import DashboardSupport
 import Foundation
 import ServiceManagement
 import StatusProtocol
@@ -36,7 +37,6 @@ private final class LightStripView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         toolTip = "Codex status: idle"
-        startAnimation()
     }
 
     required init?(coder: NSCoder) {
@@ -76,6 +76,7 @@ private final class LightStripView: NSView {
             if isInterruption(stopReason) {
                 clear(sessionID: sessionID)
                 toolTip = "Codex task interrupted"
+                updateAnimation()
                 needsDisplay = true
                 return
             }
@@ -88,6 +89,7 @@ private final class LightStripView: NSView {
                 slots[index].lastUpdated = Date()
             }
             updateToolTip()
+            updateAnimation()
             needsDisplay = true
             return
         default:
@@ -103,6 +105,7 @@ private final class LightStripView: NSView {
             clearCompletedFirst: normalizedName == "userpromptsubmit"
         )
         updateToolTip()
+        updateAnimation()
         needsDisplay = true
     }
 
@@ -112,6 +115,7 @@ private final class LightStripView: NSView {
         slots.removeAll { $0.state == .complete }
         guard slots.count != originalCount else { return false }
         updateToolTip()
+        updateAnimation()
         needsDisplay = true
         return true
     }
@@ -119,6 +123,7 @@ private final class LightStripView: NSView {
     func clearAllSlots() {
         slots.removeAll()
         updateToolTip()
+        updateAnimation()
         needsDisplay = true
     }
 
@@ -285,11 +290,29 @@ private final class LightStripView: NSView {
     }
 
     private func startAnimation() {
+        guard timer == nil else { return }
         let timer = Timer(
             timeInterval: 1 / 30, target: self, selector: #selector(tick), userInfo: nil,
             repeats: true)
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+    }
+
+    private func stopAnimation() {
+        timer?.invalidate()
+        timer = nil
+        phase = 0
+    }
+
+    private func updateAnimation() {
+        let needsAnimation = slots.contains {
+            $0.state == .working || $0.state == .preparingTool || $0.state == .waiting
+        }
+        if needsAnimation {
+            startAnimation()
+        } else {
+            stopAnimation()
+        }
     }
 
     @objc private func tick() {
@@ -307,6 +330,8 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
     private static let lightCountChoices = [4, 6, 8, 10, 12]
     private static let panelOriginXKey = "panel-origin-x"
     private static let panelOriginYKey = "panel-origin-y"
+    private static let legacyBundleIdentifier = "com.codex-monitor.dashboard"
+    private static let legacyDefaultsMigrationKey = "migrated-defaults-from-com.codex-monitor.dashboard"
 
     private let panel = StatusPanel(
         contentRect: NSRect(x: 0, y: 0, width: 236, height: 44),
@@ -320,6 +345,7 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
     private var loginItem: NSMenuItem?
 
     override init() {
+        Self.migrateLegacyDefaultsIfNeeded()
         lightStrip = LightStripView(
             frame: NSRect(x: 0, y: 0, width: 236, height: 44),
             baseLightCount: Self.baseLightCount
@@ -510,7 +536,7 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         let alert = NSAlert()
         alert.messageText = "Codex Status Dashboard"
         alert.informativeText =
-            "Monitors Codex processing. Be sure to install the hooks.\\nBlue swooshing: Codex thinking.\nRed swooshing: Codex using a tool.\nOrange pulsing: Codex needs approval.\nGreen solid: Codex done.\nDark Red solid: Aborted.\n\nSome interrupts do not yield notifications. Use Clear-All-Lights to clear. Clearing happens automatically for solid lights when Codex receives any new prompt.\n\nHooks file: \(CodexHookInstaller.configurationURL.path)\nBase lights: \(Self.baseLightCount)\n\nDeveloper: James Taylor"
+            "Monitors Codex processing. Be sure to install the hooks.\\nBlue swooshing: Codex thinking.\nRed swooshing: Codex using a tool.\nOrange pulsing: Codex needs approval.\nGreen solid: Codex done.\nDark Red solid: Failed.\n\nSome interrupts do not yield notifications. Use Clear-All-Lights to clear. Clearing happens automatically for solid lights when Codex receives any new prompt.\n\nVersion: \(applicationVersion)\nHooks file: \(CodexHookInstaller.configurationURL.path)\nBase lights: \(Self.baseLightCount)\n\nDeveloper: James Taylor"
         alert.addButton(withTitle: "Git Home")
         alert.addButton(withTitle: "OK")
         let response = alert.runModal()
@@ -572,12 +598,27 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
             let result = try CodexHookInstaller.install(helperURL: helperURL)
             let confirmation = NSAlert()
             confirmation.messageText =
-                result.addedEvents.isEmpty
+                !result.changed
                 ? "Codex hooks are already installed" : "Codex hooks installed"
-            confirmation.informativeText =
-                result.addedEvents.isEmpty
-                ? "No changes were needed in \(result.configurationURL.path)."
-                : "Added hooks for \(result.addedEvents.joined(separator: ", ")). Restart Codex Desktop, then approve the hook trust prompt when it appears."
+            if !result.changed {
+                confirmation.informativeText =
+                    "No changes were needed in \(result.configurationURL.path)."
+            } else {
+                var changes = [String]()
+                if !result.addedEvents.isEmpty {
+                    changes.append("Added: \(result.addedEvents.joined(separator: ", "))")
+                }
+                if !result.updatedEvents.isEmpty {
+                    changes.append("Updated paths: \(result.updatedEvents.joined(separator: ", "))")
+                }
+                if let backupURL = result.backupURL {
+                    changes.append("Backup: \(backupURL.path)")
+                }
+                changes.append(
+                    "Restart Codex Desktop, then approve the hook trust prompt if it appears."
+                )
+                confirmation.informativeText = changes.joined(separator: "\n")
+            }
             confirmation.runModal()
         } catch {
             showError(title: "Could not install Codex hooks", error: error)
@@ -639,6 +680,22 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         set {
             UserDefaults.standard.set(newValue, forKey: baseLightCountKey)
         }
+    }
+
+    private static func migrateLegacyDefaultsIfNeeded() {
+        let currentDefaults = UserDefaults.standard
+        guard !currentDefaults.bool(forKey: legacyDefaultsMigrationKey) else { return }
+
+        if let legacyDefaults = UserDefaults(suiteName: legacyBundleIdentifier) {
+            for key in [baseLightCountKey, panelOriginXKey, panelOriginYKey] {
+                if currentDefaults.object(forKey: key) == nil,
+                   let legacyValue = legacyDefaults.object(forKey: key)
+                {
+                    currentDefaults.set(legacyValue, forKey: key)
+                }
+            }
+        }
+        currentDefaults.set(true, forKey: legacyDefaultsMigrationKey)
     }
 
     private func showMessage(title: String, message: String) {
