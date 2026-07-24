@@ -6,8 +6,35 @@ import StatusProtocol
 
 @MainActor
 private final class StatusPanel: NSPanel {
+    var primaryClickHandler: (() -> Void)?
+    private var mouseDownScreenLocation: NSPoint?
+
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            mouseDownScreenLocation = NSEvent.mouseLocation
+        case .leftMouseUp:
+            let mouseUpScreenLocation = NSEvent.mouseLocation
+            let mouseDownScreenLocation = mouseDownScreenLocation
+            self.mouseDownScreenLocation = nil
+            super.sendEvent(event)
+            guard let mouseDownScreenLocation else { return }
+            let distance = hypot(
+                mouseUpScreenLocation.x - mouseDownScreenLocation.x,
+                mouseUpScreenLocation.y - mouseDownScreenLocation.y
+            )
+            if distance < 4 {
+                primaryClickHandler?()
+            }
+            return
+        default:
+            break
+        }
+        super.sendEvent(event)
+    }
 }
 
 @MainActor
@@ -31,6 +58,10 @@ private final class LightStripView: NSView {
     private var slots = [ThreadSlot]()
     private var phase: CGFloat = 0
     private var timer: Timer?
+    private var lightScale: CGFloat = 1
+
+    var contextMenuProvider: (() -> NSMenu?)?
+    var primaryClickHandler: (() -> Void)?
 
     init(frame frameRect: NSRect, baseLightCount: Int) {
         self.baseLightCount = max(1, baseLightCount)
@@ -46,19 +77,38 @@ private final class LightStripView: NSView {
     var preferredWidth: CGFloat {
         let groupCount = max(slots.count, 1)
         let visibleLightCount = max(baseLightCount, groupCount)
-        let diameter: CGFloat = 18
-        let gap: CGFloat = 9
-        let groupGap: CGFloat = 23
+        let diameter = 18 * lightScale
+        let gap = 9 * lightScale
+        let groupGap = 23 * lightScale
         let lightsWidth =
             CGFloat(visibleLightCount) * diameter
             + CGFloat(visibleLightCount - groupCount) * gap
             + CGFloat(groupCount - 1) * groupGap
-        return max(236, lightsWidth + 32)
+        return max(236 * lightScale, lightsWidth + 32 * lightScale)
+    }
+
+    var preferredHeight: CGFloat {
+        44 * lightScale
+    }
+
+    var currentLightScale: CGFloat {
+        lightScale
     }
 
     func setBaseLightCount(_ count: Int) {
         baseLightCount = max(1, count)
         needsDisplay = true
+    }
+
+    func setLightScale(_ scale: CGFloat) {
+        let clampedScale = min(max(scale, 0.55), 2.0)
+        guard abs(lightScale - clampedScale) > 0.001 else { return }
+        lightScale = clampedScale
+        needsDisplay = true
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        contextMenuProvider?()
     }
 
     func apply(eventName: String, sessionID: String?, stopReason: String?) {
@@ -128,15 +178,15 @@ private final class LightStripView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let bounds = self.bounds.insetBy(dx: 2, dy: 2)
+        let bounds = self.bounds.insetBy(dx: 2 * lightScale, dy: 2 * lightScale)
         let background = NSBezierPath(
             roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2)
         NSColor(calibratedWhite: 0.055, alpha: 0.92).setFill()
         background.fill()
 
-        let diameter: CGFloat = 18
-        let gap: CGFloat = 9
-        let groupGap: CGFloat = 23
+        let diameter = 18 * lightScale
+        let gap = 9 * lightScale
+        let groupGap = 23 * lightScale
         let states = slots.isEmpty ? [.idle] : slots.map(\.state)
         let visibleLightCount = max(baseLightCount, states.count)
         let counts = lightCounts(total: visibleLightCount, for: states.count)
@@ -172,7 +222,7 @@ private final class LightStripView: NSView {
         context?.saveGState()
         context?.setShadow(
             offset: .zero,
-            blur: 8 + 10 * intensity,
+            blur: (8 + 10 * intensity) * lightScale,
             color: color.withAlphaComponent(0.75 * intensity).cgColor
         )
         color.withAlphaComponent(0.16 + 0.84 * intensity).setFill()
@@ -180,7 +230,7 @@ private final class LightStripView: NSView {
         context?.restoreGState()
 
         NSColor.white.withAlphaComponent(0.12 * intensity).setFill()
-        NSBezierPath(ovalIn: rect.insetBy(dx: 4, dy: 5)).fill()
+        NSBezierPath(ovalIn: rect.insetBy(dx: 4 * lightScale, dy: 5 * lightScale)).fill()
     }
 
     private func color(for state: State) -> NSColor {
@@ -325,11 +375,54 @@ private final class LightStripView: NSView {
 
 @MainActor
 final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private struct DisplayLayout {
+        let horizontalFraction: CGFloat
+        let verticalFraction: CGFloat
+        let lightScale: CGFloat
+
+        init(horizontalFraction: CGFloat, verticalFraction: CGFloat, lightScale: CGFloat) {
+            self.horizontalFraction = horizontalFraction
+            self.verticalFraction = verticalFraction
+            self.lightScale = lightScale
+        }
+
+        init?(propertyList: [String: Any]) {
+            guard
+                let horizontal = propertyList["horizontalFraction"] as? Double,
+                let vertical = propertyList["verticalFraction"] as? Double,
+                let scale = propertyList["lightScale"] as? Double
+            else { return nil }
+            horizontalFraction = min(max(CGFloat(horizontal), 0), 1)
+            verticalFraction = min(max(CGFloat(vertical), 0), 1)
+            lightScale = min(max(CGFloat(scale), 0.55), 2.0)
+        }
+
+        var propertyList: [String: Double] {
+            [
+                "horizontalFraction": Double(horizontalFraction),
+                "verticalFraction": Double(verticalFraction),
+                "lightScale": Double(lightScale),
+            ]
+        }
+    }
+
+    private struct LightScalePreset {
+        let title: String
+        let scale: CGFloat
+    }
+
     private static let baseLightCountKey = "base-light-count"
     private static let defaultBaseLightCount = 6
     private static let lightCountChoices = [4, 6, 8, 10, 12]
     private static let panelOriginXKey = "panel-origin-x"
     private static let panelOriginYKey = "panel-origin-y"
+    private static let displayLayoutsKey = "display-layouts"
+    private static let lastDisplayIdentifierKey = "last-display-identifier"
+    private static let lightScalePresets = [
+        LightScalePreset(title: "Compact (70%)", scale: 0.7),
+        LightScalePreset(title: "Standard (100%)", scale: 1),
+        LightScalePreset(title: "Large (130%)", scale: 1.3),
+    ]
     private static let legacyBundleIdentifier = "com.codex-monitor.dashboard"
     private static let legacyDefaultsMigrationKey = "migrated-defaults-from-com.codex-monitor.dashboard"
 
@@ -363,6 +456,12 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
             name: NSWindow.didMoveNotification,
             object: panel
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(screenParametersDidChange(_:)),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(receiveHookEvent(_:)),
@@ -370,7 +469,8 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
             object: nil,
             suspensionBehavior: .deliverImmediately
         )
-        resizePanelToContents()
+        restoreLayoutForAvailableScreens()
+        saveCurrentLayout()
         panel.orderFrontRegardless()
     }
 
@@ -378,6 +478,8 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         DistributedNotificationCenter.default().removeObserver(self)
         NotificationCenter.default.removeObserver(
             self, name: NSWindow.didMoveNotification, object: panel)
+        NotificationCenter.default.removeObserver(
+            self, name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }
 
     @objc private func receiveHookEvent(_ notification: Notification) {
@@ -404,8 +506,13 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         lightStrip.autoresizingMask = [.width, .height]
+        lightStrip.contextMenuProvider = { [weak self] in
+            self?.makeDashboardContextMenu()
+        }
+        panel.primaryClickHandler = { [weak self] in
+            self?.activateCodex()
+        }
         panel.contentView = lightStrip
-        positionPanel()
     }
 
     private func configureStatusItem() {
@@ -461,6 +568,10 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         lightCountItem.submenu = lightCountMenu
         menu.addItem(lightCountItem)
 
+        let lightScaleItem = NSMenuItem(title: "Light Size", action: nil, keyEquivalent: "")
+        lightScaleItem.submenu = makeLightScaleMenu()
+        menu.addItem(lightScaleItem)
+
         menu.addItem(.separator())
 
         let installItem = NSMenuItem(
@@ -497,9 +608,13 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
     func menuNeedsUpdate(_ menu: NSMenu) {
         dashboardMenuItem?.title = panel.isVisible ? "Hide Dashboard" : "Show Dashboard"
         for item in menu.items {
-            guard let submenu = item.submenu, item.title == "Base Lights" else { continue }
-            for choice in submenu.items {
-                choice.state = choice.tag == Self.baseLightCount ? .on : .off
+            guard let submenu = item.submenu else { continue }
+            if item.title == "Base Lights" {
+                for choice in submenu.items {
+                    choice.state = choice.tag == Self.baseLightCount ? .on : .off
+                }
+            } else if item.title == "Light Size" {
+                updateLightScaleMenu(submenu)
             }
         }
         loginItem?.isEnabled = isRunningAsAppBundle
@@ -518,8 +633,9 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
     }
 
     @objc private func restoreDefaultPosition() {
-        clearSavedPanelOrigin()
-        panel.setFrameOrigin(defaultPanelOrigin())
+        guard let screen = screenContainingPanel() ?? NSScreen.main else { return }
+        panel.setFrameOrigin(defaultPanelOrigin(on: screen))
+        saveCurrentLayout(on: screen)
     }
 
     @objc private func clearDoneLights() {
@@ -582,6 +698,61 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         Self.baseLightCount = sender.tag
         lightStrip.setBaseLightCount(sender.tag)
         resizePanelToContents()
+        saveCurrentLayout()
+    }
+
+    @objc private func selectLightScale(_ sender: NSMenuItem) {
+        guard
+            let value = sender.representedObject as? NSNumber,
+            let screen = screenContainingPanel() ?? NSScreen.main
+        else { return }
+
+        applyLightScale(CGFloat(value.doubleValue), on: screen)
+    }
+
+    @objc private func adjustLightScale(_ sender: NSMenuItem) {
+        guard let screen = screenContainingPanel() ?? NSScreen.main else { return }
+        applyLightScale(lightStrip.currentLightScale + CGFloat(sender.tag) * 0.1, on: screen)
+    }
+
+    @objc private func saveDashboardLook() {
+        saveCurrentLayout()
+    }
+
+    @objc private func restoreDashboardLook() {
+        guard let screen = screenContainingPanel() ?? NSScreen.main else { return }
+        restoreLayout(on: screen)
+    }
+
+    @objc private func resetDashboardLook() {
+        guard let screen = screenContainingPanel() ?? NSScreen.main else { return }
+        removeLayout(for: screen)
+        lightStrip.setLightScale(defaultLightScale(for: screen))
+        setPanelContentSize()
+        panel.setFrameOrigin(defaultPanelOrigin(on: screen))
+        saveCurrentLayout(on: screen)
+    }
+
+    @objc private func activateCodex() {
+        let workspace = NSWorkspace.shared
+        if let codex = workspace.runningApplications.first(where: { application in
+            application.bundleIdentifier?.localizedCaseInsensitiveContains("codex") == true
+                || application.localizedName?.localizedCaseInsensitiveCompare("Codex") == .orderedSame
+        }) {
+            codex.activate(options: [.activateIgnoringOtherApps])
+            return
+        }
+
+        let applicationURL = URL(fileURLWithPath: "/Applications/Codex.app")
+        if FileManager.default.fileExists(atPath: applicationURL.path) {
+            workspace.open(applicationURL)
+            return
+        }
+
+        showMessage(
+            title: "Codex was not found",
+            message: "Start the Codex desktop app, then click the dashboard to bring it forward. The dashboard cannot yet select a specific task."
+        )
     }
 
     @objc private func installHooks() {
@@ -654,10 +825,101 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
     @objc private func panelDidMove(_ notification: Notification) {
         UserDefaults.standard.set(panel.frame.minX, forKey: Self.panelOriginXKey)
         UserDefaults.standard.set(panel.frame.minY, forKey: Self.panelOriginYKey)
+        saveCurrentLayout()
     }
 
-    private func resizePanelToContents() {
-        panel.setContentSize(NSSize(width: lightStrip.preferredWidth, height: 44))
+    @objc private func screenParametersDidChange(_ notification: Notification) {
+        guard let screen = screenContainingPanel() else {
+            restoreLayoutForAvailableScreens()
+            return
+        }
+        restoreLayout(on: screen)
+    }
+
+    private func makeDashboardContextMenu() -> NSMenu {
+        let menu = NSMenu(title: "Codex Status Dashboard")
+
+        let openCodexItem = NSMenuItem(
+            title: "Bring Codex Forward", action: #selector(activateCodex), keyEquivalent: "")
+        openCodexItem.target = self
+        menu.addItem(openCodexItem)
+        menu.addItem(.separator())
+
+        let sizeItem = NSMenuItem(title: "Light Size", action: nil, keyEquivalent: "")
+        sizeItem.submenu = makeLightScaleMenu()
+        menu.addItem(sizeItem)
+
+        let saveItem = NSMenuItem(
+            title: "Save This Display’s Look", action: #selector(saveDashboardLook), keyEquivalent: "")
+        saveItem.target = self
+        menu.addItem(saveItem)
+
+        let restoreItem = NSMenuItem(
+            title: "Restore This Display’s Look", action: #selector(restoreDashboardLook), keyEquivalent: "")
+        restoreItem.target = self
+        restoreItem.isEnabled = (screenContainingPanel()).flatMap(layout(for:)) != nil
+        menu.addItem(restoreItem)
+
+        let resetItem = NSMenuItem(
+            title: "Reset This Display’s Look", action: #selector(resetDashboardLook), keyEquivalent: "")
+        resetItem.target = self
+        menu.addItem(resetItem)
+        return menu
+    }
+
+    private func makeLightScaleMenu() -> NSMenu {
+        let menu = NSMenu(title: "Light Size")
+        let smallerItem = NSMenuItem(
+            title: "Smaller", action: #selector(adjustLightScale(_:)), keyEquivalent: "")
+        smallerItem.target = self
+        smallerItem.tag = -1
+        menu.addItem(smallerItem)
+
+        let largerItem = NSMenuItem(
+            title: "Larger", action: #selector(adjustLightScale(_:)), keyEquivalent: "")
+        largerItem.target = self
+        largerItem.tag = 1
+        menu.addItem(largerItem)
+        menu.addItem(.separator())
+
+        for preset in Self.lightScalePresets {
+            let item = NSMenuItem(
+                title: preset.title, action: #selector(selectLightScale(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = NSNumber(value: Double(preset.scale))
+            item.state = abs(lightStrip.currentLightScale - preset.scale) < 0.01 ? .on : .off
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    private func applyLightScale(_ scale: CGFloat, on screen: NSScreen) {
+        lightStrip.setLightScale(scale)
+        resizePanelToContents(on: screen)
+        saveCurrentLayout(on: screen)
+    }
+
+    private func updateLightScaleMenu(_ menu: NSMenu) {
+        for item in menu.items {
+            guard let value = item.representedObject as? NSNumber else { continue }
+            item.state = abs(lightStrip.currentLightScale - CGFloat(value.doubleValue)) < 0.01
+                ? .on : .off
+        }
+    }
+
+    private func resizePanelToContents(on screen: NSScreen? = nil) {
+        let targetScreen = screen ?? screenContainingPanel()
+        let relativeOrigin = targetScreen.map { normalizedOrigin(on: $0) }
+        setPanelContentSize()
+        if let targetScreen, let relativeOrigin {
+            panel.setFrameOrigin(panelOrigin(from: relativeOrigin, on: targetScreen))
+        }
+    }
+
+    private func setPanelContentSize() {
+        panel.setContentSize(
+            NSSize(width: lightStrip.preferredWidth, height: lightStrip.preferredHeight)
+        )
     }
 
     private var isRunningAsAppBundle: Bool {
@@ -709,16 +971,44 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         showMessage(title: title, message: error.localizedDescription)
     }
 
-    private func positionPanel() {
-        if let savedOrigin = savedPanelOrigin(), isVisibleOnAnyScreen(origin: savedOrigin) {
-            panel.setFrameOrigin(savedOrigin)
+    private func restoreLayoutForAvailableScreens() {
+        guard let screen = preferredScreenForRestore() else {
+            setPanelContentSize()
+            panel.setFrameOrigin(.zero)
             return
         }
-        panel.setFrameOrigin(defaultPanelOrigin())
+        restoreLayout(on: screen)
     }
 
-    private func defaultPanelOrigin() -> NSPoint {
-        guard let screen = NSScreen.main else { return .zero }
+    private func restoreLayout(on screen: NSScreen) {
+        if let layout = layout(for: screen) {
+            lightStrip.setLightScale(layout.lightScale)
+            setPanelContentSize()
+            panel.setFrameOrigin(panelOrigin(from: layout, on: screen))
+            return
+        }
+
+        lightStrip.setLightScale(defaultLightScale(for: screen))
+        setPanelContentSize()
+        if let savedOrigin = savedPanelOrigin(), isVisibleOn(screen: screen, origin: savedOrigin) {
+            panel.setFrameOrigin(savedOrigin)
+        } else {
+            panel.setFrameOrigin(defaultPanelOrigin(on: screen))
+        }
+    }
+
+    private func preferredScreenForRestore() -> NSScreen? {
+        if let lastIdentifier = UserDefaults.standard.string(forKey: Self.lastDisplayIdentifierKey),
+           let lastScreen = NSScreen.screens.first(where: {
+               displayIdentifier(for: $0) == lastIdentifier
+           })
+        {
+            return lastScreen
+        }
+        return NSScreen.main ?? NSScreen.screens.first
+    }
+
+    private func defaultPanelOrigin(on screen: NSScreen) -> NSPoint {
         // The light-strip border is inset by two points inside the panel. Align
         // the panel with the physical screen edge so that inset is also the
         // visible gap below and to the left of the border.
@@ -737,14 +1027,81 @@ final class DashboardController: NSObject, NSApplicationDelegate, NSMenuDelegate
         )
     }
 
-    private func clearSavedPanelOrigin() {
-        UserDefaults.standard.removeObject(forKey: Self.panelOriginXKey)
-        UserDefaults.standard.removeObject(forKey: Self.panelOriginYKey)
+    private func screenContainingPanel() -> NSScreen? {
+        let panelFrame = panel.frame
+        guard let screen = NSScreen.screens.max(by: { left, right in
+            intersectionArea(panelFrame, left.frame) < intersectionArea(panelFrame, right.frame)
+        }) else { return nil }
+        return intersectionArea(panelFrame, screen.frame) > 0 ? screen : nil
     }
 
-    private func isVisibleOnAnyScreen(origin: NSPoint) -> Bool {
+    private func intersectionArea(_ lhs: NSRect, _ rhs: NSRect) -> CGFloat {
+        let intersection = lhs.intersection(rhs)
+        return intersection.isNull ? 0 : intersection.width * intersection.height
+    }
+
+    private func normalizedOrigin(on screen: NSScreen) -> DisplayLayout {
+        let frame = screen.frame
+        let horizontalRange = max(frame.width - panel.frame.width, 1)
+        let verticalRange = max(frame.height - panel.frame.height, 1)
+        return DisplayLayout(
+            horizontalFraction: min(max((panel.frame.minX - frame.minX) / horizontalRange, 0), 1),
+            verticalFraction: min(max((panel.frame.minY - frame.minY) / verticalRange, 0), 1),
+            lightScale: lightStrip.currentLightScale
+        )
+    }
+
+    private func panelOrigin(from layout: DisplayLayout, on screen: NSScreen) -> NSPoint {
+        let frame = screen.frame
+        let horizontalRange = max(frame.width - panel.frame.width, 0)
+        let verticalRange = max(frame.height - panel.frame.height, 0)
+        return NSPoint(
+            x: frame.minX + horizontalRange * layout.horizontalFraction,
+            y: frame.minY + verticalRange * layout.verticalFraction
+        )
+    }
+
+    private func saveCurrentLayout(on screen: NSScreen? = nil) {
+        guard let screen = screen ?? screenContainingPanel() else { return }
+        let identifier = displayIdentifier(for: screen)
+        var layouts = UserDefaults.standard.dictionary(forKey: Self.displayLayoutsKey) ?? [:]
+        layouts[identifier] = normalizedOrigin(on: screen).propertyList
+        UserDefaults.standard.set(layouts, forKey: Self.displayLayoutsKey)
+        UserDefaults.standard.set(identifier, forKey: Self.lastDisplayIdentifierKey)
+    }
+
+    private func layout(for screen: NSScreen) -> DisplayLayout? {
+        guard
+            let layouts = UserDefaults.standard.dictionary(forKey: Self.displayLayoutsKey),
+            let propertyList = layouts[displayIdentifier(for: screen)] as? [String: Any]
+        else { return nil }
+        return DisplayLayout(propertyList: propertyList)
+    }
+
+    private func removeLayout(for screen: NSScreen) {
+        var layouts = UserDefaults.standard.dictionary(forKey: Self.displayLayoutsKey) ?? [:]
+        layouts.removeValue(forKey: displayIdentifier(for: screen))
+        UserDefaults.standard.set(layouts, forKey: Self.displayLayoutsKey)
+    }
+
+    private func defaultLightScale(for screen: NSScreen) -> CGFloat {
+        // Built-in displays tend to be much narrower in points than external
+        // monitors. Once the user chooses a preset, that display's saved scale
+        // takes precedence over this first-run fallback.
+        screen.frame.width <= 1_600 ? 0.7 : 1
+    }
+
+    private func displayIdentifier(for screen: NSScreen) -> String {
+        let screenNumberKey = NSDeviceDescriptionKey("NSScreenNumber")
+        if let screenNumber = screen.deviceDescription[screenNumberKey] as? NSNumber {
+            return "display-\(screenNumber.stringValue)"
+        }
+        return "display-\(screen.localizedName)"
+    }
+
+    private func isVisibleOn(screen: NSScreen, origin: NSPoint) -> Bool {
         let frame = NSRect(origin: origin, size: panel.frame.size)
-        return NSScreen.screens.contains { $0.frame.intersects(frame) }
+        return screen.frame.intersects(frame)
     }
 }
 

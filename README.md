@@ -90,6 +90,14 @@ persisted Base Lights preference, Hook installation, and Launch at Login.
 The bundled app icon is generated from [Resources/AppIcon.svg](Resources/AppIcon.svg).
 Dragging the strip saves its screen position; choose **Restore Default Position**
 from the same menu to return it to the lower-left screen edge.
+Each display remembers its own position and light size. Right-click the floating
+strip to make it smaller or larger, choose a compact, standard, large, or
+preset, save the current display's look, restore it, or reset that display to
+its default.
+On a first-use narrow display the dashboard starts compact; a chosen preset
+always takes precedence. Clicking the strip brings the Codex desktop app to the
+front, although macOS does not currently expose enough task identity for the
+dashboard to select a particular Codex task.
 The menu also provides **Clear Done Lights**, **Clear All Lights**, a manual
 **Check for Updates…** action, and **About & Status…**. Update checks contact
 only the project's public GitHub Releases endpoint; they never download or
